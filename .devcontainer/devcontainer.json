@@ -1,0 +1,12 @@
+{
+  "name": "Web Quality Agent",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm install && npx playwright install --with-deps chromium",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Web Quality Agent",
+      "onAutoForward": "openBrowser"
+    }
+  }
+}
