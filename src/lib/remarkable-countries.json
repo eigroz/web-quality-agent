@@ -1,0 +1,296 @@
+[
+  {
+    "code": "AU",
+    "name": "Australia",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "AT",
+    "name": "Austria",
+    "language": "de",
+    "disableWebshop": false
+  },
+  {
+    "code": "BE",
+    "name": "Belgium",
+    "language": "de",
+    "disableWebshop": false
+  },
+  {
+    "code": "BG",
+    "name": "Bulgaria",
+    "language": "bg",
+    "disableWebshop": false
+  },
+  {
+    "code": "CA",
+    "name": "Canada",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "IC",
+    "name": "Canary Islands",
+    "language": "es",
+    "disableWebshop": false
+  },
+  {
+    "code": "HR",
+    "name": "Croatia",
+    "language": "hr",
+    "disableWebshop": false
+  },
+  {
+    "code": "CY",
+    "name": "Cyprus",
+    "language": "el",
+    "disableWebshop": false
+  },
+  {
+    "code": "CZ",
+    "name": "Czech Republic",
+    "language": "cs",
+    "disableWebshop": false
+  },
+  {
+    "code": "DK",
+    "name": "Denmark",
+    "language": "da",
+    "disableWebshop": false
+  },
+  {
+    "code": "EE",
+    "name": "Estonia",
+    "language": "et",
+    "disableWebshop": false
+  },
+  {
+    "code": "FI",
+    "name": "Finland",
+    "language": "fi",
+    "disableWebshop": false
+  },
+  {
+    "code": "FR",
+    "name": "France",
+    "language": "fr",
+    "disableWebshop": false
+  },
+  {
+    "code": "DE",
+    "name": "Germany",
+    "language": "de",
+    "disableWebshop": false
+  },
+  {
+    "code": "GR",
+    "name": "Greece",
+    "language": "el",
+    "disableWebshop": false
+  },
+  {
+    "code": "HK",
+    "name": "Hong Kong",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "HU",
+    "name": "Hungary",
+    "language": "hu",
+    "disableWebshop": false
+  },
+  {
+    "code": "IS",
+    "name": "Iceland",
+    "language": "is",
+    "disableWebshop": false
+  },
+  {
+    "code": "IN",
+    "name": "India",
+    "language": "en",
+    "disableWebshop": true
+  },
+  {
+    "code": "IE",
+    "name": "Ireland",
+    "language": "ga",
+    "disableWebshop": false
+  },
+  {
+    "code": "IL",
+    "name": "Israel",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "IT",
+    "name": "Italy",
+    "language": "it",
+    "disableWebshop": false
+  },
+  {
+    "code": "JP",
+    "name": "Japan",
+    "language": "ja",
+    "disableWebshop": false
+  },
+  {
+    "code": "JE",
+    "name": "Jersey",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "LV",
+    "name": "Latvia",
+    "language": "lv",
+    "disableWebshop": false
+  },
+  {
+    "code": "LI",
+    "name": "Liechtenstein",
+    "language": "de",
+    "disableWebshop": false
+  },
+  {
+    "code": "LT",
+    "name": "Lithuania",
+    "language": "lt",
+    "disableWebshop": false
+  },
+  {
+    "code": "LU",
+    "name": "Luxembourg",
+    "language": "fr",
+    "disableWebshop": false
+  },
+  {
+    "code": "MT",
+    "name": "Malta",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "NL",
+    "name": "Netherlands",
+    "language": "nl",
+    "disableWebshop": false
+  },
+  {
+    "code": "NZ",
+    "name": "New Zealand",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "NO",
+    "name": "Norway",
+    "language": "no",
+    "disableWebshop": false
+  },
+  {
+    "code": "PL",
+    "name": "Poland",
+    "language": "pl",
+    "disableWebshop": false
+  },
+  {
+    "code": "PT",
+    "name": "Portugal",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "QA",
+    "name": "Qatar",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "RO",
+    "name": "Romania",
+    "language": "ro",
+    "disableWebshop": false
+  },
+  {
+    "code": "SA",
+    "name": "Saudi Arabia",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "SG",
+    "name": "Singapore",
+    "language": "ms",
+    "disableWebshop": false
+  },
+  {
+    "code": "SK",
+    "name": "Slovakia",
+    "language": "sk",
+    "disableWebshop": false
+  },
+  {
+    "code": "SI",
+    "name": "Slovenia",
+    "language": "sl",
+    "disableWebshop": false
+  },
+  {
+    "code": "KR",
+    "name": "South Korea",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "ES",
+    "name": "Spain",
+    "language": "es",
+    "disableWebshop": false
+  },
+  {
+    "code": "SE",
+    "name": "Sweden",
+    "language": "sv",
+    "disableWebshop": false
+  },
+  {
+    "code": "CH",
+    "name": "Switzerland",
+    "language": "de",
+    "disableWebshop": false
+  },
+  {
+    "code": "TW",
+    "name": "Taiwan",
+    "language": "tw",
+    "disableWebshop": false
+  },
+  {
+    "code": "TH",
+    "name": "Thailand",
+    "language": "th",
+    "disableWebshop": false
+  },
+  {
+    "code": "AE",
+    "name": "United Arab Emirates",
+    "language": "ar",
+    "disableWebshop": false
+  },
+  {
+    "code": "GB",
+    "name": "United Kingdom",
+    "language": "en",
+    "disableWebshop": false
+  },
+  {
+    "code": "US",
+    "name": "United States",
+    "language": "en",
+    "disableWebshop": false
+  }
+]
