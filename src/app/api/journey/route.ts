@@ -251,7 +251,7 @@ async function configureProduct(page: Page) {
 }
 
 async function chooseRemarkableOptions(page: Page) {
-  const bundle = page.getByRole("radio", { name: /best value|sleeve folio bundle|type folio bundle|bundle/i }).first();
+  const bundle = page.getByRole("radio", { name: /best value|sleeve folio bundle|type folio bundle/i }).first();
   if (await bundle.isVisible({ timeout: 3000 }).catch(() => false)) {
     await bundle.evaluate((element) => (element as HTMLInputElement).click());
     await page.waitForTimeout(250);
