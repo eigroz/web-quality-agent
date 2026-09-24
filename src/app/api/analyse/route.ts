@@ -1,5 +1,5 @@
 import { countrySettings, countryUrl } from "@/lib/countries";
-import { Browser, chromium } from "playwright";
+import { Browser, launchBrowser } from "@/lib/browser";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   const pages: PageResult[] = [];
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const page = await browser.newPage({ userAgent: "WebQualityAgent/0.1", locale: settings.locale, timezoneId: settings.timezone, extraHTTPHeaders: { "Accept-Language": `${settings.locale},${settings.locale.split("-")[0]};q=0.9` } });
     while (queue.length && pages.length < maxPages) {
       const currentUrl = queue.shift()!;

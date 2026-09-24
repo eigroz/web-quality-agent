@@ -76,7 +76,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: countryUrl(url, country), maxPages, country }),
       });
-      const data = await response.json();
+      const data = await response.json() as AnalysisResult & { error?: string };
       if (!response.ok) throw new Error(data.error || "Analysis failed");
       setResult(data);
     } catch (caught) {
@@ -93,7 +93,7 @@ export default function Home() {
     setJourney(null);
     try {
       const response = await fetch("/api/journey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: countryUrl(url, country), country }) });
-      const data = await response.json();
+      const data = await response.json() as JourneyResult & { error?: string };
       if (!response.ok) throw new Error(data.error || "Journey analysis failed");
       setJourney(data);
     } catch (caught) {
@@ -114,7 +114,7 @@ export default function Home() {
         body: JSON.stringify({ title: `Journey quality report: ${new URL(journey.startUrl).hostname}`, overview: overviewMessage, speedSummary: speedMessage, recommendations, steps: journey.steps }),
       });
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
+        const data = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error || "The PDF report could not be created.");
       }
       const blob = await response.blob();

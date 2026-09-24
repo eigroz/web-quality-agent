@@ -1,5 +1,5 @@
 import { countrySettings, countryUrl, isRemarkableUrl } from "@/lib/countries";
-import { Browser, Page, chromium } from "playwright";
+import { Browser, Page, launchBrowser } from "@/lib/browser";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -259,7 +259,7 @@ export async function POST(request: Request) {
 
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const page = await browser.newPage({ userAgent: "WebQualityAgent/0.1", locale: settings.locale, timezoneId: settings.timezone, extraHTTPHeaders: { "Accept-Language": `${settings.locale},${settings.locale.split("-")[0]};q=0.9` } });
     const steps: JourneyStep[] = [];
     const isRemarkable = isRemarkableUrl(startUrl);
