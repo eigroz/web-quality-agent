@@ -250,6 +250,19 @@ async function configureProduct(page: Page) {
   await clickText(page, /configure|customi[sz]e|choose your|select options|start configuring|kom igång/);
 }
 
+async function chooseRemarkableOptions(page: Page) {
+  const bundle = page.getByRole("radio", { name: /best value|sleeve folio bundle|type folio bundle|bundle/i }).first();
+  if (await bundle.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await bundle.evaluate((element) => (element as HTMLInputElement).click());
+    await page.waitForTimeout(250);
+  }
+}
+
+async function addRemarkableProductToCart(page: Page) {
+  await addProductToCart(page);
+  await page.getByRole("link", { name: /checkout/i }).first().waitFor({ state: "visible", timeout: 10000 });
+}
+
 export async function POST(request: Request) {
   let input: { url?: string; country?: string };
   try { input = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
@@ -266,31 +279,35 @@ export async function POST(request: Request) {
     const isProductsStart = /^\/(?:[a-z]{2}\/)?products\/?$/i.test(startUrl.pathname);
     const homepageUrl = isRemarkable && isProductsStart ? countryUrl(`${startUrl.origin}/`, input.country || "US") : startUrl.toString();
     steps.push(await runStep(page, "Homepage", async () => { const response = await page.goto(homepageUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
-    if (isRemarkable && isProductsStart) {
-      steps.push(await runStep(page, "Products", async () => { const response = await page.goto(startUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
-    }
     const currentPath = new URL(page.url()).pathname;
     const shopUrl = /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
     if (!shopUrl) throw new Error("No shop link was found on the homepage.");
     if (!isRemarkable || !isProductsStart) {
-      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(countryUrl(shopUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(isRemarkable ? shopUrl : countryUrl(shopUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     }
     const shopPath = new URL(page.url()).pathname;
     const productListingUrl = /\/(products|shop)(?:\/|$)/i.test(shopPath) ? page.url() : await matchingLink(page, /laundry|kitchen|washing|dishwasher|refrigerator|cooking|vitvaror|tvätt|tork|diskmaskin|kyl|frys|matlagning|paper|tablet|accessor|product|shop/, "category");
     if (!productListingUrl) throw new Error("No product listing was found in the shop.");
     const sellableProductListingUrl = new URL(productListingUrl);
     sellableProductListingUrl.searchParams.set("d2cSellable", "true");
-    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(countryUrl(sellableProductListingUrl.toString(), input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(isRemarkable ? sellableProductListingUrl.toString() : countryUrl(sellableProductListingUrl.toString(), input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     await page.waitForTimeout(1000);
     const productUrl = await findSellableProduct(page, /.+/);
     if (!productUrl) {
       const anchorCount = await page.locator("a[href]").count();
       throw new Error(`No sellable product was found on ${page.url()} (${anchorCount} links inspected). The category may require a region, consent, or client-side product selection before product URLs are exposed.`);
     }
-    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(countryUrl(productUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(isRemarkable ? productUrl : countryUrl(productUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     steps.push(await runStep(page, isRemarkable ? "Configure product" : "Add product to cart", async () => { if (isRemarkable) await configureProduct(page); else await addProductToCart(page); return null; }));
     if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
-    if (isRemarkable) return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+    if (isRemarkable) {
+      steps.push(await runStep(page, "Choose bundle and add-ons", async () => { await chooseRemarkableOptions(page); return null; }));
+      if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+      steps.push(await runStep(page, "Add product to cart", async () => { await addRemarkableProductToCart(page); return null; }));
+      if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+      steps.push(await runStep(page, "Checkout", async () => { await openCheckout(page); return null; }));
+      return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+    }
     steps.push(await runStep(page, "Open cart", async () => { await openCart(page); return null; }));
     if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
     steps.push(await runStep(page, "Checkout", async () => { await openCheckout(page); return null; }));
@@ -309,3 +326,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Journey analysis failed." }, { status: 422 });
   } finally { await browser?.close(); }
 }
+

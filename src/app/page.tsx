@@ -54,7 +54,7 @@ const initialMetrics = [
 ];
 
 export default function Home() {
-  const [url, setUrl] = useState("https://remarkable.com/us/products/");
+  const [url, setUrl] = useState("https://remarkable.com/us/");
   const [country, setCountry] = useState("US");
   const [maxPages, setMaxPages] = useState(25);
   const [result, setResult] = useState<AnalysisResult | null>(null);
