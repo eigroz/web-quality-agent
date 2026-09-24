@@ -41,7 +41,8 @@ async function pageSnapshot(page: Page) {
   return page.evaluate(() => {
     const resources = performance.getEntriesByType("resource").map((entry) => {
       const resource = entry as PerformanceResourceTiming;
-      const external = new URL(resource.name).origin !== window.location.origin;
+      const companyDomain = (hostname: string) => hostname.replace(/^www\./, "").split(".").slice(-2).join(".");
+      const external = companyDomain(new URL(resource.name).hostname) !== companyDomain(window.location.hostname);
       const resourceUrl = resource.name.toLowerCase();
       const vendor = [{ pattern: /tradedoubler/, name: "Tradedoubler" }, { pattern: /datadog|dd-rum/, name: "Datadog" }, { pattern: /google-analytics|googletagmanager|gtag/, name: "Google" }, { pattern: /segment/, name: "Segment" }, { pattern: /hotjar/, name: "Hotjar" }, { pattern: /newrelic|nr-data/, name: "New Relic" }, { pattern: /sentry/, name: "Sentry" }, { pattern: /clarity/, name: "Microsoft Clarity" }, { pattern: /fullstory/, name: "FullStory" }, { pattern: /optimizely/, name: "Optimizely" }, { pattern: /onetrust|trustarc/, name: "OneTrust" }].find((candidate) => candidate.pattern.test(resourceUrl))?.name;
       let purpose = resource.initiatorType || "asset";
@@ -119,10 +120,10 @@ function trafficAssessment(snapshot: Awaited<ReturnType<typeof pageSnapshot>>, d
 function repeatableChecks(snapshot: Awaited<ReturnType<typeof pageSnapshot>>, actions: string[], title: string) {
   const inefficiencies: string[] = [];
   const resources = [...snapshot.slowestResources, ...snapshot.largestResources];
-  if (snapshot.duplicateResources.length > 0) inefficiencies.push(`${snapshot.duplicateResources.length} resource${snapshot.duplicateResources.length === 1 ? "" : "s"} loaded more than once; open this finding to see which files and how much data they used.`);
+  if (snapshot.duplicateResources.length > 0) inefficiencies.push(`${snapshot.duplicateResources.length} resource${snapshot.duplicateResources.length === 1 ? "" : "s"} loaded more than once. The files, owners, likely purposes, load counts, and sizes are shown with this finding.`);
   const vendorNames = [...new Set(resources.map((resource) => resource.vendor).filter(Boolean))];
   if (vendorNames.length > 1) inefficiencies.push(`${vendorNames.join(", ")} load on this page; confirm each vendor is needed before the page is usable.`);
-  if (snapshot.externalAssetCount >= 20) inefficiencies.push(`${snapshot.externalAssetCount} external resources load; reduce third-party code and keep only what supports this page or journey step.`);
+  if (snapshot.externalAssetCount >= 20) inefficiencies.push(`${snapshot.externalAssetCount} resources came from other companies' domains. This is not automatically a fault; review who owns them, why they are needed, and whether they must load before this journey step is usable.`);
   if (/homepage|products|available products|product selection/i.test(title) && !actions.some((action) => /shop|product|buy|configure|cart|basket|amazon/i.test(action))) inefficiencies.push("No clear next purchase action was detected; make the next step obvious to customers.");
   if (/product selection|configure/i.test(title) && !actions.some((action) => /configure|buy|cart|basket|amazon|add/i.test(action))) inefficiencies.push("No clear purchase or configuration action was detected on the product page.");
   return inefficiencies;
