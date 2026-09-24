@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { launchBrowser } from "@/lib/browser";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const page = await browser.newPage();
     const steps = input.steps || [];
     const recommendations = input.recommendations || [];

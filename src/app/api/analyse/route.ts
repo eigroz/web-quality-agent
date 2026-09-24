@@ -1,4 +1,5 @@
-import { Browser, chromium } from "playwright";
+import { countrySettings, countryUrl } from "@/lib/countries";
+import { Browser, launchBrowser } from "@/lib/browser";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -6,14 +7,6 @@ export const maxDuration = 300;
 
 type PageResult = { url: string; status: number | null; title: string; metaDescription: string; h1: string; canonical: string; internalLinks: number; externalLinks: number };
 
-const countrySettings: Record<string, { locale: string; timezone: string }> = {
-  US: { locale: "en-US", timezone: "America/New_York" },
-  GB: { locale: "en-GB", timezone: "Europe/London" },
-  DE: { locale: "de-DE", timezone: "Europe/Berlin" },
-  SE: { locale: "sv-SE", timezone: "Europe/Stockholm" },
-  AU: { locale: "en-AU", timezone: "Australia/Sydney" },
-  CA: { locale: "en-CA", timezone: "America/Toronto" },
-};
 
 function normalizeUrl(value: string, baseUrl: URL) {
   try {
@@ -27,16 +20,16 @@ export async function POST(request: Request) {
   let input: { url?: string; maxPages?: number; country?: string };
   try { input = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   let startUrl: URL;
-  try { startUrl = new URL(input.url || ""); if (!["http:", "https:"].includes(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
+  try { startUrl = new URL(countryUrl(input.url || "", input.country || "US")); if (!["http:", "https:"].includes(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
   const maxPages = Math.min(Math.max(Math.floor(Number(input.maxPages) || 25), 1), 100);
-  const settings = countrySettings[input.country || "US"] || countrySettings.US;
+  const settings = countrySettings(input.country || "US");
   const origin = startUrl.hostname;
   const queue = [normalizeUrl(startUrl.toString(), startUrl)!];
   const queued = new Set(queue);
   const pages: PageResult[] = [];
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const page = await browser.newPage({ userAgent: "WebQualityAgent/0.1", locale: settings.locale, timezoneId: settings.timezone, extraHTTPHeaders: { "Accept-Language": `${settings.locale},${settings.locale.split("-")[0]};q=0.9` } });
     while (queue.length && pages.length < maxPages) {
       const currentUrl = queue.shift()!;
@@ -50,7 +43,7 @@ export async function POST(request: Request) {
         }, origin);
         const internal = data.links.filter((link) => link.internal).map((link) => link.link);
         for (const link of internal) {
-          const normalized = normalizeUrl(link, startUrl);
+          const normalized = normalizeUrl(countryUrl(link, input.country || "US"), startUrl);
           if (normalized && !queued.has(normalized) && queue.length + pages.length < maxPages) { queued.add(normalized); queue.push(normalized); }
         }
         pages.push({ url: currentUrl, status, title: data.title, metaDescription: data.metaDescription, h1: data.h1, canonical: data.canonical, internalLinks: internal.length, externalLinks: data.links.length - internal.length });

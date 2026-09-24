@@ -1,4 +1,5 @@
-import { Browser, Page, chromium } from "playwright";
+import { countrySettings, countryUrl, isRemarkableUrl } from "@/lib/countries";
+import { Browser, Page, launchBrowser } from "@/lib/browser";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -24,27 +25,24 @@ type JourneyStep = {
   availableActions?: string[];
 };
 
-const countrySettings: Record<string, { locale: string; timezone: string }> = {
-  US: { locale: "en-US", timezone: "America/New_York" },
-  GB: { locale: "en-GB", timezone: "Europe/London" },
-  DE: { locale: "de-DE", timezone: "Europe/Berlin" },
-  SE: { locale: "sv-SE", timezone: "Europe/Stockholm" },
-  AU: { locale: "en-AU", timezone: "Australia/Sydney" },
-  CA: { locale: "en-CA", timezone: "America/Toronto" },
-};
 
 function text(value: string) { return value.replace(/\s+/g, " ").trim(); }
 
 async function dismissOverlays(page: Page) {
-  const close = page.getByRole("button", { name: /accept|agree|allow all|close|no thanks|later|got it|ok|godkänn|acceptera|tillåt alla|godkänn alla|samtycke|jag godkänner|senare/i }).first();
-  if (await close.isVisible({ timeout: 500 }).catch(() => false)) await close.click().catch(() => undefined);
+  const overlayActions = [/accept all|allow all|agree|acceptera|tillåt alla|godkänn alla|jag godkänner/i, /only necessary|no thanks|later|got it|senare/i, /close modal|close/i];
+  for (const name of overlayActions) {
+    await page.getByRole("button", { name }).evaluateAll((elements) => elements.forEach((element) => (element as HTMLElement).click())).catch(() => undefined);
+    await page.waitForTimeout(300);
+  }
+  await page.keyboard.press("Escape").catch(() => undefined);
 }
 
 async function pageSnapshot(page: Page) {
   return page.evaluate(() => {
     const resources = performance.getEntriesByType("resource").map((entry) => {
       const resource = entry as PerformanceResourceTiming;
-      const external = new URL(resource.name).origin !== window.location.origin;
+      const companyDomain = (hostname: string) => hostname.replace(/^www\./, "").split(".").slice(-2).join(".");
+      const external = companyDomain(new URL(resource.name).hostname) !== companyDomain(window.location.hostname);
       const resourceUrl = resource.name.toLowerCase();
       const vendor = [{ pattern: /tradedoubler/, name: "Tradedoubler" }, { pattern: /datadog|dd-rum/, name: "Datadog" }, { pattern: /google-analytics|googletagmanager|gtag/, name: "Google" }, { pattern: /segment/, name: "Segment" }, { pattern: /hotjar/, name: "Hotjar" }, { pattern: /newrelic|nr-data/, name: "New Relic" }, { pattern: /sentry/, name: "Sentry" }, { pattern: /clarity/, name: "Microsoft Clarity" }, { pattern: /fullstory/, name: "FullStory" }, { pattern: /optimizely/, name: "Optimizely" }, { pattern: /onetrust|trustarc/, name: "OneTrust" }].find((candidate) => candidate.pattern.test(resourceUrl))?.name;
       let purpose = resource.initiatorType || "asset";
@@ -122,10 +120,10 @@ function trafficAssessment(snapshot: Awaited<ReturnType<typeof pageSnapshot>>, d
 function repeatableChecks(snapshot: Awaited<ReturnType<typeof pageSnapshot>>, actions: string[], title: string) {
   const inefficiencies: string[] = [];
   const resources = [...snapshot.slowestResources, ...snapshot.largestResources];
-  if (snapshot.duplicateResources.length > 0) inefficiencies.push(`${snapshot.duplicateResources.length} resource${snapshot.duplicateResources.length === 1 ? "" : "s"} loaded more than once; open this finding to see which files and how much data they used.`);
+  if (snapshot.duplicateResources.length > 0) inefficiencies.push(`${snapshot.duplicateResources.length} resource${snapshot.duplicateResources.length === 1 ? "" : "s"} loaded more than once. The files, owners, likely purposes, load counts, and sizes are shown with this finding.`);
   const vendorNames = [...new Set(resources.map((resource) => resource.vendor).filter(Boolean))];
   if (vendorNames.length > 1) inefficiencies.push(`${vendorNames.join(", ")} load on this page; confirm each vendor is needed before the page is usable.`);
-  if (snapshot.externalAssetCount >= 20) inefficiencies.push(`${snapshot.externalAssetCount} external resources load; reduce third-party code and keep only what supports this page or journey step.`);
+  if (snapshot.externalAssetCount >= 20) inefficiencies.push(`${snapshot.externalAssetCount} resources came from other companies' domains. This is not automatically a fault; review who owns them, why they are needed, and whether they must load before this journey step is usable.`);
   if (/homepage|products|available products|product selection/i.test(title) && !actions.some((action) => /shop|product|buy|configure|cart|basket|amazon/i.test(action))) inefficiencies.push("No clear next purchase action was detected; make the next step obvious to customers.");
   if (/product selection|configure/i.test(title) && !actions.some((action) => /configure|buy|cart|basket|amazon|add/i.test(action))) inefficiencies.push("No clear purchase or configuration action was detected on the product page.");
   return inefficiencies;
@@ -257,47 +255,71 @@ async function configureProduct(page: Page) {
   await clickText(page, /configure|customi[sz]e|choose your|select options|start configuring|kom igång/);
 }
 
+async function chooseRemarkableOptions(page: Page) {
+  const bundle = page.getByRole("radio", { name: /best value|sleeve folio bundle|type folio bundle/i }).first();
+  if (await bundle.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await bundle.evaluate((element) => (element as HTMLInputElement).click());
+    await page.waitForTimeout(250);
+  }
+}
+
+async function addRemarkableProductToCart(page: Page) {
+  await addProductToCart(page);
+  const checkout = page.locator("a:visible, button:visible, [role='button']:visible").filter({ hasText: /checkout|go to cart|view cart|basket/i }).first();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForTimeout(750);
+    await dismissOverlays(page);
+    await openCart(page).catch(() => undefined);
+    if (await checkout.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) return;
+  }
+  throw new Error("The cart did not expose a checkout action after the product was added and visible overlays were dismissed.");
+}
+
 export async function POST(request: Request) {
   let input: { url?: string; country?: string };
   try { input = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   let startUrl: URL;
-  try { startUrl = new URL(input.url || ""); if (!/^https?:$/.test(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
-  const settings = countrySettings[input.country || "US"] || countrySettings.US;
+  try { startUrl = new URL(countryUrl(input.url || "", input.country || "US")); if (!/^https?:$/.test(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
+  const settings = countrySettings(input.country || "US");
 
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
     const page = await browser.newPage({ userAgent: "WebQualityAgent/0.1", locale: settings.locale, timezoneId: settings.timezone, extraHTTPHeaders: { "Accept-Language": `${settings.locale},${settings.locale.split("-")[0]};q=0.9` } });
     const steps: JourneyStep[] = [];
-    const isRemarkable = startUrl.hostname.endsWith("remarkable.com");
-    const isProductsStart = /^\/products\/?$/i.test(startUrl.pathname);
-    const homepageUrl = isRemarkable && isProductsStart ? `${startUrl.origin}/` : startUrl.toString();
+    const isRemarkable = isRemarkableUrl(startUrl);
+    const isProductsStart = /^\/(?:[a-z]{2}\/)?products\/?$/i.test(startUrl.pathname);
+    const homepageUrl = isRemarkable && isProductsStart ? countryUrl(`${startUrl.origin}/`, input.country || "US") : startUrl.toString();
     steps.push(await runStep(page, "Homepage", async () => { const response = await page.goto(homepageUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
-    if (isRemarkable && isProductsStart) {
-      steps.push(await runStep(page, "Products", async () => { const response = await page.goto(startUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
-    }
     const currentPath = new URL(page.url()).pathname;
-    const shopUrl = /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
+    const shopUrl = isRemarkable ? new URL("/shop/which-remarkable-is-right-for-you", startUrl.origin).toString() : /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
     if (!shopUrl) throw new Error("No shop link was found on the homepage.");
     if (!isRemarkable || !isProductsStart) {
-      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(shopUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(isRemarkable ? shopUrl : countryUrl(shopUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     }
     const shopPath = new URL(page.url()).pathname;
     const productListingUrl = /\/(products|shop)(?:\/|$)/i.test(shopPath) ? page.url() : await matchingLink(page, /laundry|kitchen|washing|dishwasher|refrigerator|cooking|vitvaror|tvätt|tork|diskmaskin|kyl|frys|matlagning|paper|tablet|accessor|product|shop/, "category");
     if (!productListingUrl) throw new Error("No product listing was found in the shop.");
     const sellableProductListingUrl = new URL(productListingUrl);
     sellableProductListingUrl.searchParams.set("d2cSellable", "true");
-    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(sellableProductListingUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(isRemarkable ? sellableProductListingUrl.toString() : countryUrl(sellableProductListingUrl.toString(), input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     await page.waitForTimeout(1000);
-    const productUrl = await findSellableProduct(page, /.+/);
+    const productUrl = isRemarkable ? new URL("/products/remarkable-paper/pure?d2cSellable=true", startUrl.origin).toString() : await findSellableProduct(page, /.+/);
     if (!productUrl) {
       const anchorCount = await page.locator("a[href]").count();
       throw new Error(`No sellable product was found on ${page.url()} (${anchorCount} links inspected). The category may require a region, consent, or client-side product selection before product URLs are exposed.`);
     }
-    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(isRemarkable ? productUrl : countryUrl(productUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     steps.push(await runStep(page, isRemarkable ? "Configure product" : "Add product to cart", async () => { if (isRemarkable) await configureProduct(page); else await addProductToCart(page); return null; }));
     if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
-    if (isRemarkable) return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+    if (isRemarkable) {
+      steps.push(await runStep(page, "Choose bundle and add-ons", async () => { await chooseRemarkableOptions(page); return null; }));
+      if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+      steps.push(await runStep(page, "Add product to cart", async () => { await addRemarkableProductToCart(page); return null; }));
+      if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+      steps.push(await runStep(page, "Checkout", async () => { await openCheckout(page); return null; }));
+      return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
+    }
     steps.push(await runStep(page, "Open cart", async () => { await openCart(page); return null; }));
     if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
     steps.push(await runStep(page, "Checkout", async () => { await openCheckout(page); return null; }));
@@ -312,7 +334,8 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment, steps });
   } catch (error) {
-    if (!browser) return NextResponse.json({ error: "The crawler browser is unavailable. Run `npx playwright install --with-deps chromium` and try again." }, { status: 503 });
+    if (!browser) return NextResponse.json({ error: process.env.NODE_ENV === "development" ? "Local Chromium could not start. Install it with `npx playwright install chromium` and try again." : "The hosted browser could not start. Cloudflare may be at its run limit; completed runs remain available. Try again shortly." }, { status: 503 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Journey analysis failed." }, { status: 422 });
   } finally { await browser?.close(); }
 }
+
