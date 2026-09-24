@@ -1,3 +1,4 @@
+import { countrySettings, countryUrl, isRemarkableUrl } from "@/lib/countries";
 import { Browser, Page, chromium } from "playwright";
 import { NextResponse } from "next/server";
 
@@ -24,14 +25,6 @@ type JourneyStep = {
   availableActions?: string[];
 };
 
-const countrySettings: Record<string, { locale: string; timezone: string }> = {
-  US: { locale: "en-US", timezone: "America/New_York" },
-  GB: { locale: "en-GB", timezone: "Europe/London" },
-  DE: { locale: "de-DE", timezone: "Europe/Berlin" },
-  SE: { locale: "sv-SE", timezone: "Europe/Stockholm" },
-  AU: { locale: "en-AU", timezone: "Australia/Sydney" },
-  CA: { locale: "en-CA", timezone: "America/Toronto" },
-};
 
 function text(value: string) { return value.replace(/\s+/g, " ").trim(); }
 
@@ -261,17 +254,17 @@ export async function POST(request: Request) {
   let input: { url?: string; country?: string };
   try { input = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 }); }
   let startUrl: URL;
-  try { startUrl = new URL(input.url || ""); if (!/^https?:$/.test(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
-  const settings = countrySettings[input.country || "US"] || countrySettings.US;
+  try { startUrl = new URL(countryUrl(input.url || "", input.country || "US")); if (!/^https?:$/.test(startUrl.protocol)) throw new Error(); } catch { return NextResponse.json({ error: "Enter a valid http(s) website URL." }, { status: 400 }); }
+  const settings = countrySettings(input.country || "US");
 
   let browser: Browser | undefined;
   try {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ userAgent: "WebQualityAgent/0.1", locale: settings.locale, timezoneId: settings.timezone, extraHTTPHeaders: { "Accept-Language": `${settings.locale},${settings.locale.split("-")[0]};q=0.9` } });
     const steps: JourneyStep[] = [];
-    const isRemarkable = startUrl.hostname.endsWith("remarkable.com");
-    const isProductsStart = /^\/products\/?$/i.test(startUrl.pathname);
-    const homepageUrl = isRemarkable && isProductsStart ? `${startUrl.origin}/` : startUrl.toString();
+    const isRemarkable = isRemarkableUrl(startUrl);
+    const isProductsStart = /^\/(?:[a-z]{2}\/)?products\/?$/i.test(startUrl.pathname);
+    const homepageUrl = isRemarkable && isProductsStart ? countryUrl(`${startUrl.origin}/`, input.country || "US") : startUrl.toString();
     steps.push(await runStep(page, "Homepage", async () => { const response = await page.goto(homepageUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     if (isRemarkable && isProductsStart) {
       steps.push(await runStep(page, "Products", async () => { const response = await page.goto(startUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
@@ -280,21 +273,21 @@ export async function POST(request: Request) {
     const shopUrl = /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
     if (!shopUrl) throw new Error("No shop link was found on the homepage.");
     if (!isRemarkable || !isProductsStart) {
-      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(shopUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+      steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(countryUrl(shopUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     }
     const shopPath = new URL(page.url()).pathname;
     const productListingUrl = /\/(products|shop)(?:\/|$)/i.test(shopPath) ? page.url() : await matchingLink(page, /laundry|kitchen|washing|dishwasher|refrigerator|cooking|vitvaror|tvätt|tork|diskmaskin|kyl|frys|matlagning|paper|tablet|accessor|product|shop/, "category");
     if (!productListingUrl) throw new Error("No product listing was found in the shop.");
     const sellableProductListingUrl = new URL(productListingUrl);
     sellableProductListingUrl.searchParams.set("d2cSellable", "true");
-    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(sellableProductListingUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(countryUrl(sellableProductListingUrl.toString(), input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     await page.waitForTimeout(1000);
     const productUrl = await findSellableProduct(page, /.+/);
     if (!productUrl) {
       const anchorCount = await page.locator("a[href]").count();
       throw new Error(`No sellable product was found on ${page.url()} (${anchorCount} links inspected). The category may require a region, consent, or client-side product selection before product URLs are exposed.`);
     }
-    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
+    steps.push(await runStep(page, "Product selection", async () => { const response = await page.goto(countryUrl(productUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     steps.push(await runStep(page, isRemarkable ? "Configure product" : "Add product to cart", async () => { if (isRemarkable) await configureProduct(page); else await addProductToCart(page); return null; }));
     if (steps[steps.length - 1].status === "blocked") return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });
     if (isRemarkable) return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment: false, steps });

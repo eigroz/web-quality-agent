@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { countries, countryUrl } from "@/lib/countries";
 
 type PageResult = {
   url: string;
@@ -42,14 +43,6 @@ type JourneyStep = {
 
 type JourneyResult = { startUrl: string; stoppedAtPayment: boolean; steps: JourneyStep[] };
 
-const countries = [
-  { code: "US", name: "United States", locale: "en-US", timezone: "America/New_York" },
-  { code: "GB", name: "United Kingdom", locale: "en-GB", timezone: "Europe/London" },
-  { code: "DE", name: "Germany", locale: "de-DE", timezone: "Europe/Berlin" },
-  { code: "SE", name: "Sweden", locale: "sv-SE", timezone: "Europe/Stockholm" },
-  { code: "AU", name: "Australia", locale: "en-AU", timezone: "Australia/Sydney" },
-  { code: "CA", name: "Canada", locale: "en-CA", timezone: "America/Toronto" },
-];
 
 const initialMetrics = [
   { label: "Pages scanned", key: "pagesScanned" as const },
@@ -60,7 +53,7 @@ const initialMetrics = [
 ];
 
 export default function Home() {
-  const [url, setUrl] = useState("https://remarkable.com/products/");
+  const [url, setUrl] = useState("https://remarkable.com/us/products/");
   const [country, setCountry] = useState("US");
   const [maxPages, setMaxPages] = useState(25);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -81,7 +74,7 @@ export default function Home() {
       const response = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, maxPages, country }),
+        body: JSON.stringify({ url: countryUrl(url, country), maxPages, country }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Analysis failed");
@@ -99,7 +92,7 @@ export default function Home() {
     setJourneyError("");
     setJourney(null);
     try {
-      const response = await fetch("/api/journey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, country }) });
+      const response = await fetch("/api/journey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: countryUrl(url, country), country }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Journey analysis failed");
       setJourney(data);
@@ -173,8 +166,8 @@ export default function Home() {
       </header>
       <main className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-16">
         <section className="max-w-3xl"><p className="mb-4 text-xs font-bold tracking-[0.24em] text-sky-400 uppercase">Technical site intelligence</p><h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">Make every page count.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">Crawl a website, surface structural gaps, and turn raw page data into a clear quality baseline.</p></section>
-        <label className="mt-10 block"><span className="mb-2 block text-xs font-semibold tracking-wider text-slate-400 uppercase">Website URL</span><input value={url} onChange={(event) => setUrl(event.target.value)} type="url" required placeholder="https://www.example.com" className="h-12 w-full border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400" /></label>
-        <label className="mt-5 block"><span className="mb-2 block text-xs font-semibold tracking-wider text-slate-400 uppercase">Test country</span><select value={country} onChange={(event) => setCountry(event.target.value)} className="h-12 w-full border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400">{countries.map((option) => <option key={option.code} value={option.code}>{option.name} ({option.code})</option>)}</select><span className="mt-2 block text-xs leading-5 text-slate-500">Uses country locale, timezone, and language headers. It does not change the crawler&apos;s IP address.</span></label>
+        <label className="mt-10 block"><span className="mb-2 block text-xs font-semibold tracking-wider text-slate-400 uppercase">Website URL</span><input value={url} onChange={(event) => setUrl(event.target.value)} onBlur={() => { try { setUrl(countryUrl(url, country)); } catch { /* Validation runs when analysis starts. */ } }} type="url" required placeholder="https://www.example.com" className="h-12 w-full border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400" /></label>
+        <label className="mt-5 block"><span className="mb-2 block text-xs font-semibold tracking-wider text-slate-400 uppercase">Test country</span><select value={country} onChange={(event) => { const nextCountry = event.target.value; setCountry(nextCountry); try { setUrl(countryUrl(url, nextCountry)); } catch { /* Allow the user to finish entering a URL. */ } }} className="h-12 w-full border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400">{countries.map((option) => <option key={option.code} value={option.code}>{option.name} ({option.code})</option>)}</select>{countries.find((option) => option.code === country)?.disableWebshop && <span className="mt-2 block text-xs text-amber-300">The supplied reMarkable configuration marks this country’s webshop as unavailable. You can still test its regional page.</span>}<span className="mt-2 block text-xs leading-5 text-slate-500">Updates the reMarkable URL to the selected country and keeps the page path. Browser language and timezone also follow the selection; the crawler&apos;s IP address stays the same.</span></label>
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           <form onSubmit={analyseSite} className="border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-slate-950/40 sm:p-6"><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Site analysis</p><h2 className="mt-2 text-xl font-semibold text-white">Check the site structure</h2><p className="mt-2 text-sm leading-6 text-slate-400">Crawl pages and find missing titles, headings, descriptions, and broken links.</p><label className="mt-5 block"><span className="mb-2 block text-xs font-semibold tracking-wider text-slate-400 uppercase">Maximum pages</span><input value={maxPages} onChange={(event) => setMaxPages(Number(event.target.value))} type="number" min="1" max="100" required className="h-12 w-full border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400" /></label><button type="submit" disabled={loading} className="mt-4 flex h-12 w-full items-center justify-center gap-2 bg-sky-400 px-6 text-sm font-bold text-slate-950 transition hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60">{loading ? "Analysing..." : "Analyse site"}{!loading && <span aria-hidden="true">-&gt;</span>}</button>{error && <p className="mt-4 border-l-2 border-rose-400 bg-rose-950/30 px-3 py-2 text-sm text-rose-200">{error}</p>}</form>
           <form onSubmit={analyseJourney} className="border border-sky-900/70 bg-slate-900/70 p-5 sm:p-6"><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Journey test</p><h2 className="mt-2 text-xl font-semibold text-white">Test the buying journey</h2><p className="mt-2 text-sm leading-6 text-slate-400">Follow the homepage, shop, products, configuration, cart, and checkout path.</p><button type="submit" disabled={journeyLoading} className="mt-5 flex h-12 w-full items-center justify-center gap-2 bg-sky-400 px-6 text-sm font-bold text-slate-950 transition hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60">{journeyLoading ? "Running journey..." : "Run journey test"}{!journeyLoading && <span aria-hidden="true">-&gt;</span>}</button>{journeyError && <p className="mt-4 border-l-2 border-rose-400 bg-rose-950/30 px-3 py-2 text-sm text-rose-200">{journeyError}</p>}</form>
