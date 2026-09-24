@@ -1,118 +1,70 @@
-type ExecutivePreviewProps = {
-  market: string;
-  targetUrl: string;
-};
+type Resource = { url: string; durationMs: number; transferSize: number; type?: string; vendor?: string; purpose: string; role?: string; impact?: "high" | "medium" | "low"; suggestion?: string; count?: number };
+type Step = { name: string; status: "complete" | "blocked" | "stopped"; speedLight: "green" | "orange" | "red"; issues: string[]; inefficiencies: string[]; url: string; durationMs: number; note?: string; loaded: { duplicateResources: Resource[]; slowestResources: Resource[]; largestResources: Resource[] } };
+type Run = { startUrl: string; steps: Step[] };
+type Props = { runs: Run[]; market: string; targetUrl: string; expectedRuns: number; isRunning: boolean };
+type ScriptFinding = Resource & { section: string; pageUrl: string; runNumbers: Set<number>; occurrences: number };
 
-const stages = [
-  { name: "Homepage", result: "3/3 passed", state: "good" },
-  { name: "Product range", result: "3/3 passed", state: "good" },
-  { name: "Product page", result: "3/3 passed", state: "good" },
-  { name: "Configure", result: "3/3 passed", state: "good" },
-  { name: "Cart", result: "1/3 passed", state: "bad" },
-  { name: "Checkout", result: "1/3 reached", state: "muted" },
-] as const;
-
-const inefficiencies = [
-  { title: "Product configuration is slow", repeat: "3 of 3 runs", measure: "6.8s median" },
-  { title: "Analytics bundle loads twice", repeat: "3 of 3 runs", measure: "410 KB repeated" },
-  { title: "Three redirects before the product range", repeat: "3 of 3 runs", measure: "+1.4s" },
-  { title: "Product page is heavier than expected", repeat: "2 of 3 runs", measure: "5.4 MB" },
-] as const;
-
-function stageClasses(state: (typeof stages)[number]["state"]) {
-  if (state === "good") return "border-emerald-800/80 bg-emerald-950/30 text-emerald-300";
-  if (state === "bad") return "border-rose-700 bg-rose-950/40 text-rose-200";
-  return "border-slate-700 bg-slate-900 text-slate-400";
+function resourceName(value: string) {
+  try { const url = new URL(value); return `${url.hostname} · ${url.pathname.split("/").filter(Boolean).at(-1) || url.hostname}`; } catch { return value; }
 }
+function pageName(value: string) { try { return new URL(value).pathname || "/"; } catch { return value; } }
+function severity(resource: ScriptFinding) { return (resource.impact === "high" ? 3 : resource.impact === "medium" ? 2 : 1) * 1_000_000 + resource.runNumbers.size * 100_000 + resource.durationMs; }
 
-export default function ExecutivePreview({ market, targetUrl }: ExecutivePreviewProps) {
-  return (
-    <section className="mt-10 overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-slate-950/50">
-      <div className="border-b border-slate-700 bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 p-5 sm:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Executive journey preview</p>
-              <span className="border border-amber-700/70 bg-amber-950/40 px-2 py-1 text-[10px] font-bold tracking-wider text-amber-200 uppercase">Illustrative data</span>
-            </div>
-            <h2 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">The buying journey is unreliable at cart.</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">Three identical runs separate a repeatable customer blocker from slower steps that create friction. This preview follows the selected {market} journey.</p>
-            <p className="mt-2 max-w-3xl truncate text-xs text-slate-600">{targetUrl}</p>
-          </div>
-          <div className="border-l-2 border-rose-500 pl-4 lg:max-w-sm">
-            <p className="text-xs font-bold tracking-wider text-rose-300 uppercase">Decision</p>
-            <p className="mt-2 text-sm leading-6 text-slate-200">Restore reliable cart progression before investing in performance optimisation.</p>
-          </div>
-        </div>
-      </div>
+export default function ExecutivePreview({ runs, market, targetUrl, expectedRuns, isRunning }: Props) {
+  if (runs.length === 0) return null;
+  const stepOrder = [...new Set(runs.flatMap((run) => run.steps.map((step) => step.name)))];
+  const stages = stepOrder.map((name) => {
+    const samples = runs.flatMap((run) => run.steps.filter((step) => step.name === name));
+    const complete = samples.filter((step) => step.status === "complete").length;
+    const averageMs = samples.reduce((sum, step) => sum + step.durationMs, 0) / Math.max(1, samples.length);
+    const state = samples.some((step) => step.status === "blocked" || step.speedLight === "red") ? "bad" : samples.some((step) => step.speedLight === "orange") ? "warn" : "good";
+    return { name, complete, averageMs, state };
+  });
+  const completedRuns = runs.filter((run) => run.steps.length > 0 && run.steps.every((step) => step.status === "complete")).length;
+  const issueMap = new Map<string, { section: string; pageUrl: string; text: string; runs: Set<number>; blocked: boolean }>();
+  const scriptMap = new Map<string, ScriptFinding>();
 
-      <div className="grid gap-px bg-slate-800 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          ["Journey score", "54 / 100", "Needs attention"],
-          ["Completed", "1 of 3", "Two runs blocked"],
-          ["Blockers", "1", "Conversion risk"],
-          ["Inefficiencies", "4", "Cost and delay"],
-          ["Confidence", "High", "Repeated 3 times"],
-        ].map(([label, value, note]) => (
-          <div key={label} className="bg-slate-950/80 p-5">
-            <p className="text-xs font-medium text-slate-500">{label}</p>
-            <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
-            <p className="mt-1 text-xs text-slate-500">{note}</p>
-          </div>
-        ))}
-      </div>
+  runs.forEach((run, runIndex) => run.steps.forEach((step) => {
+    [...step.issues, ...step.inefficiencies, ...(step.note ? [step.note] : [])].forEach((text) => {
+      const key = `${step.name}|${step.url}|${text}`;
+      const issue = issueMap.get(key) ?? { section: step.name, pageUrl: step.url, text, runs: new Set<number>(), blocked: step.status === "blocked" };
+      issue.runs.add(runIndex + 1); issue.blocked ||= step.status === "blocked"; issueMap.set(key, issue);
+    });
+    const resources = new Map<string, Resource>();
+    [...step.loaded.slowestResources, ...step.loaded.largestResources].forEach((resource) => {
+      if (resource.type === "script" || /script|analytics|tracking|tag manager|monitoring/i.test(`${resource.type} ${resource.purpose} ${resource.role ?? ""}`)) resources.set(resource.url, resource);
+    });
+    step.loaded.duplicateResources.forEach((resource) => {
+      if (!/image|font|stylesheet|video/i.test(`${resource.purpose} ${resource.role ?? ""}`)) resources.set(resource.url, { ...resources.get(resource.url), ...resource });
+    });
+    resources.forEach((resource) => {
+      const key = `${step.name}|${step.url}|${resource.url}`;
+      const current = scriptMap.get(key);
+      if (current) { current.runNumbers.add(runIndex + 1); current.occurrences += resource.count ?? 1; current.durationMs += resource.durationMs; current.transferSize += resource.transferSize; if (resource.impact === "high" || (resource.impact === "medium" && current.impact === "low")) current.impact = resource.impact; }
+      else scriptMap.set(key, { ...resource, section: step.name, pageUrl: step.url, runNumbers: new Set([runIndex + 1]), occurrences: resource.count ?? 1 });
+    });
+  }));
 
-      <div className="p-5 sm:p-7">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Journey funnel</p><h3 className="mt-2 text-xl font-semibold text-white">Where customers lose momentum</h3></div>
-          <p className="text-xs text-slate-500">Same route · same market · 3 runs</p>
-        </div>
-        <div className="mt-5 grid gap-2 md:grid-cols-6">
-          {stages.map((stage, index) => (
-            <div key={stage.name} className={`relative border p-3 ${stageClasses(stage.state)}`}>
-              <p className="text-[10px] font-bold tracking-wider uppercase opacity-70">Step {index + 1}</p>
-              <p className="mt-2 text-sm font-semibold">{stage.name}</p>
-              <p className="mt-1 text-xs opacity-80">{stage.result}</p>
-            </div>
-          ))}
-        </div>
+  const issues = [...issueMap.values()].sort((a, b) => Number(b.blocked) - Number(a.blocked) || b.runs.size - a.runs.size);
+  const scripts = [...scriptMap.values()].sort((a, b) => severity(b) - severity(a));
+  const repeatedIssues = issues.filter((issue) => issue.runs.size >= 2);
+  const repeatedScripts = scripts.filter((script) => script.runNumbers.size >= 2 || script.occurrences > script.runNumbers.size);
+  const troublingScripts = scripts.filter((script) => script.impact === "high" || script.impact === "medium" || script.durationMs / script.runNumbers.size >= 500 || script.occurrences > script.runNumbers.size);
+  const blocked = issues.find((issue) => issue.blocked);
+  const slowest = [...stages].sort((a, b) => b.averageMs - a.averageMs)[0];
+  const score = Math.max(0, Math.round(100 * completedRuns / runs.length - repeatedIssues.filter((issue) => issue.blocked).length * 10 - Math.min(25, troublingScripts.length * 2)));
+  const decision = blocked ? `Fix ${blocked.section.toLowerCase()} first; it blocked ${blocked.runs.size} of ${runs.length} runs.` : slowest ? `The journey completes. Focus next on ${slowest.name.toLowerCase()}, averaging ${(slowest.averageMs / 1000).toFixed(1)} seconds.` : "No repeatable blocker was found.";
+  const sections = stepOrder.map((section) => ({ section, pages: [...new Set(scripts.filter((script) => script.section === section).map((script) => script.pageUrl))].map((pageUrl) => ({ pageUrl, scripts: scripts.filter((script) => script.section === section && script.pageUrl === pageUrl) })) })).filter((section) => section.pages.length);
 
-        <div className="mt-7 grid gap-5 xl:grid-cols-[1.25fr_1fr]">
-          <div>
-            <div className="flex items-center justify-between"><div><p className="text-xs font-bold tracking-[0.2em] text-rose-400 uppercase">Blocking conversion</p><h3 className="mt-2 text-xl font-semibold text-white">One issue needs immediate action</h3></div><span className="bg-rose-500 px-2.5 py-1 text-xs font-bold text-white">P1</span></div>
-            <details open className="mt-4 border border-rose-800/80 bg-rose-950/20 p-4">
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="font-semibold text-white">Add to cart does not progress the journey</p><p className="mt-2 text-sm text-slate-400">The action failed in two consecutive runs, after a successful product configuration.</p></div><span className="shrink-0 text-sm font-semibold text-rose-300">2 of 3 runs</span></div>
-              </summary>
-              <div className="mt-5 grid gap-4 border-t border-rose-900/70 pt-5 text-sm md:grid-cols-2">
-                <div><p className="text-xs font-bold tracking-wider text-slate-500 uppercase">Customer impact</p><p className="mt-2 leading-6 text-slate-300">Customers can choose a product but cannot reliably begin checkout. Paid traffic may reach the product and still produce no order.</p></div>
-                <div><p className="text-xs font-bold tracking-wider text-slate-500 uppercase">Observed evidence</p><p className="mt-2 leading-6 text-slate-300">The button accepted the click, but the cart count and URL did not change within 10 seconds.</p></div>
-                <div><p className="text-xs font-bold tracking-wider text-slate-500 uppercase">Expected</p><p className="mt-2 leading-6 text-slate-300">A cart confirmation or checkout transition after one click.</p></div>
-                <div><p className="text-xs font-bold tracking-wider text-slate-500 uppercase">Recommended owner</p><p className="mt-2 leading-6 text-slate-300">Ecommerce platform team · reproduce with the captured route and inspect cart API errors.</p></div>
-              </div>
-            </details>
-          </div>
-
-          <div>
-            <p className="text-xs font-bold tracking-[0.2em] text-amber-300 uppercase">Creating friction</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Four recurring inefficiencies</h3>
-            <div className="mt-4 space-y-2">
-              {inefficiencies.map((item) => (
-                <details key={item.title} className="border border-slate-700 bg-slate-950/60 p-3">
-                  <summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-slate-200">{item.title}</p><p className="mt-1 text-xs text-slate-500">{item.repeat}</p></div><span className="shrink-0 text-xs font-semibold text-amber-300">{item.measure}</span></div></summary>
-                  <p className="mt-3 border-t border-slate-800 pt-3 text-xs leading-5 text-slate-400">Open the live finding to see the affected requests, timestamps, likely cause, and the action recommended for the delivery team.</p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-7 flex flex-col gap-3 border-t border-slate-800 pt-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>This sample shows the proposed report structure. Live run history will replace these figures.</p>
-          <p className="text-slate-400">Last 3 runs · Desktop · {market}</p>
-        </div>
-      </div>
-    </section>
-  );
+  return <section className="mt-10 overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-slate-950/50">
+    <div className="border-b border-slate-700 bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 p-5 sm:p-7"><div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><div className="flex flex-wrap items-center gap-3"><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Live executive journey report</p><span className="border border-emerald-700/70 bg-emerald-950/40 px-2 py-1 text-[10px] font-bold tracking-wider text-emerald-200 uppercase">Measured data</span>{isRunning && <span className="text-xs text-amber-300">Run {Math.min(runs.length + 1, expectedRuns)} of {expectedRuns} in progress</span>}</div><h2 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">{completedRuns === runs.length ? "The buying journey completes." : `${runs.length - completedRuns} of ${runs.length} runs encountered a block.`}</h2><p className="mt-3 text-sm leading-6 text-slate-400">Results from {runs.length} identical {market} journey run{runs.length === 1 ? "" : "s"}, grouped by section and page.</p><p className="mt-2 truncate text-xs text-slate-600">{targetUrl}</p></div><div className="border-l-2 border-sky-500 pl-4 lg:max-w-sm"><p className="text-xs font-bold tracking-wider text-sky-300 uppercase">Decision</p><p className="mt-2 text-sm leading-6 text-slate-200">{decision}</p></div></div></div>
+    <div className="grid gap-px bg-slate-800 sm:grid-cols-2 lg:grid-cols-5">{[["Journey score", `${score} / 100`], ["Completed", `${completedRuns} of ${runs.length}`], ["Repeated issues", String(repeatedIssues.length)], ["Troubling scripts", String(troublingScripts.length)], ["Confidence", runs.length >= expectedRuns ? "High" : "Building"]].map(([label, value]) => <div key={label} className="bg-slate-950/80 p-5"><p className="text-xs text-slate-500">{label}</p><p className="mt-2 text-2xl font-semibold text-white">{value}</p></div>)}</div>
+    <div className="p-5 sm:p-7"><div className="flex items-end justify-between"><div><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Journey consistency</p><h3 className="mt-2 text-xl font-semibold text-white">Pass rate and average time by section</h3></div><p className="text-xs text-slate-500">Target: {expectedRuns} runs</p></div>
+      <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{stages.map((stage) => <div key={stage.name} className={stage.state === "bad" ? "border border-rose-700 bg-rose-950/30 p-3" : stage.state === "warn" ? "border border-amber-800 bg-amber-950/20 p-3" : "border border-emerald-800 bg-emerald-950/20 p-3"}><p className="text-sm font-semibold text-white">{stage.name}</p><p className="mt-2 text-xs text-slate-300">{stage.complete}/{runs.length} passed · {(stage.averageMs / 1000).toFixed(2)}s average</p></div>)}</div>
+      <div className="mt-8 grid gap-6 xl:grid-cols-[0.8fr_1.2fr]"><div><p className="text-xs font-bold tracking-[0.2em] text-amber-300 uppercase">Repeated journey issues</p><h3 className="mt-2 text-xl font-semibold text-white">Patterns seen more than once</h3><div className="mt-4 space-y-2">{repeatedIssues.length === 0 && <p className="border border-slate-700 bg-slate-950/60 p-4 text-sm text-emerald-300">No issue has repeated across the completed runs.</p>}{repeatedIssues.map((issue) => <details key={`${issue.section}-${issue.text}`} className="border border-slate-700 bg-slate-950/60 p-3"><summary className="cursor-pointer list-none"><div className="flex justify-between gap-4"><div><p className="text-sm font-semibold text-slate-200">{issue.section}</p><p className="mt-1 text-xs text-slate-500">{pageName(issue.pageUrl)}</p></div><span className={issue.blocked ? "text-xs font-semibold text-rose-300" : "text-xs font-semibold text-amber-300"}>{issue.runs.size}/{runs.length} runs</span></div></summary><p className="mt-3 border-t border-slate-800 pt-3 text-xs leading-5 text-slate-300">{issue.text}</p></details>)}</div></div>
+        <div><p className="text-xs font-bold tracking-[0.2em] text-sky-400 uppercase">Code and script evidence</p><h3 className="mt-2 text-xl font-semibold text-white">Grouped by section and page</h3><p className="mt-2 text-sm text-slate-400">Open a section, then a page, to inspect resources in priority order.</p><div className="mt-4 space-y-3">{sections.map(({ section, pages }) => <details key={section} className="border border-slate-700 bg-slate-950/60 p-4"><summary className="cursor-pointer text-sm font-semibold text-white">{section} <span className="ml-2 text-xs font-normal text-slate-500">{pages.reduce((sum, page) => sum + page.scripts.length, 0)} resources</span></summary><div className="mt-3 space-y-2 border-t border-slate-800 pt-3">{pages.map(({ pageUrl, scripts: pageScripts }) => <details key={pageUrl} className="border border-slate-800 bg-slate-900 p-3"><summary className="cursor-pointer text-xs font-semibold text-sky-300">{pageName(pageUrl)} <span className="ml-2 font-normal text-slate-500">{pageScripts.length} items</span></summary><div className="mt-3 space-y-2">{pageScripts.slice(0, 12).map((script) => <details key={script.url} className="border-l-2 border-slate-700 bg-slate-950 p-3"><summary className="cursor-pointer list-none"><div className="flex flex-col gap-2 sm:flex-row sm:justify-between"><div><p className="break-all text-xs font-semibold text-slate-200">{resourceName(script.url)}</p><p className="mt-1 text-[11px] text-slate-500">{script.role || script.purpose}</p></div><div className="shrink-0 text-right text-[11px]"><p className={script.impact === "high" ? "font-bold text-rose-300" : script.impact === "medium" ? "font-semibold text-amber-300" : "text-slate-400"}>{script.runNumbers.size}/{runs.length} runs · {script.occurrences} loads</p><p className="mt-1 text-slate-500">{(script.durationMs / script.runNumbers.size / 1000).toFixed(2)}s avg · {(script.transferSize / 1024).toFixed(0)} KB</p></div></div></summary><div className="mt-3 border-t border-slate-800 pt-3"><p className="break-all text-[11px] text-slate-500">{script.url}</p><p className="mt-2 text-xs leading-5 text-slate-300">{script.suggestion || "Review whether this resource is needed before the page becomes usable, and load it once where possible."}</p></div></details>)}</div></details>)}</div></details>)}</div></div></div>
+      <div className="mt-7 flex flex-col gap-2 border-t border-slate-800 pt-5 text-xs text-slate-500 sm:flex-row sm:justify-between"><p>{repeatedScripts.length} resources repeated across runs or loaded multiple times on one page.</p><p>{market} · Desktop · {runs.length}/{expectedRuns} runs</p></div>
+    </div>
+  </section>;
 }
 

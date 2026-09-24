@@ -322,7 +322,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment, steps });
   } catch (error) {
-    if (!browser) return NextResponse.json({ error: "The crawler browser is unavailable. Run `npx playwright install --with-deps chromium` and try again." }, { status: 503 });
+    if (!browser) return NextResponse.json({ error: "The hosted browser could not start. Cloudflare may be at its run limit; completed runs remain available. Try again shortly." }, { status: 503 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Journey analysis failed." }, { status: 422 });
   } finally { await browser?.close(); }
 }
