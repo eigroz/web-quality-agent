@@ -29,8 +29,12 @@ type JourneyStep = {
 function text(value: string) { return value.replace(/\s+/g, " ").trim(); }
 
 async function dismissOverlays(page: Page) {
-  const close = page.getByRole("button", { name: /accept|agree|allow all|close|no thanks|later|got it|ok|godkänn|acceptera|tillåt alla|godkänn alla|samtycke|jag godkänner|senare/i }).first();
-  if (await close.isVisible({ timeout: 500 }).catch(() => false)) await close.click().catch(() => undefined);
+  const overlayActions = [/accept all|allow all|agree|acceptera|tillåt alla|godkänn alla|jag godkänner/i, /only necessary|no thanks|later|got it|senare/i, /close modal|close/i];
+  for (const name of overlayActions) {
+    await page.getByRole("button", { name }).evaluateAll((elements) => elements.forEach((element) => (element as HTMLElement).click())).catch(() => undefined);
+    await page.waitForTimeout(300);
+  }
+  await page.keyboard.press("Escape").catch(() => undefined);
 }
 
 async function pageSnapshot(page: Page) {
@@ -260,7 +264,14 @@ async function chooseRemarkableOptions(page: Page) {
 
 async function addRemarkableProductToCart(page: Page) {
   await addProductToCart(page);
-  await page.getByRole("link", { name: /checkout/i }).first().waitFor({ state: "visible", timeout: 10000 });
+  const checkout = page.locator("a:visible, button:visible, [role='button']:visible").filter({ hasText: /checkout|go to cart|view cart|basket/i }).first();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForTimeout(750);
+    await dismissOverlays(page);
+    await openCart(page).catch(() => undefined);
+    if (await checkout.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) return;
+  }
+  throw new Error("The cart did not expose a checkout action after the product was added and visible overlays were dismissed.");
 }
 
 export async function POST(request: Request) {
@@ -280,7 +291,7 @@ export async function POST(request: Request) {
     const homepageUrl = isRemarkable && isProductsStart ? countryUrl(`${startUrl.origin}/`, input.country || "US") : startUrl.toString();
     steps.push(await runStep(page, "Homepage", async () => { const response = await page.goto(homepageUrl, { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     const currentPath = new URL(page.url()).pathname;
-    const shopUrl = /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
+    const shopUrl = isRemarkable ? new URL("/shop/which-remarkable-is-right-for-you", startUrl.origin).toString() : /\/(products|shop)(?:\/|$)/i.test(currentPath) ? page.url() : await matchingLink(page, /shop|store|products|appliances|buy|handla|produkter|butik/, "shop");
     if (!shopUrl) throw new Error("No shop link was found on the homepage.");
     if (!isRemarkable || !isProductsStart) {
       steps.push(await runStep(page, "Shop", async () => { const response = await page.goto(isRemarkable ? shopUrl : countryUrl(shopUrl, input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
@@ -292,7 +303,7 @@ export async function POST(request: Request) {
     sellableProductListingUrl.searchParams.set("d2cSellable", "true");
     steps.push(await runStep(page, "Available products", async () => { const response = await page.goto(isRemarkable ? sellableProductListingUrl.toString() : countryUrl(sellableProductListingUrl.toString(), input.country || "US"), { waitUntil: "domcontentloaded", timeout: 20000 }); await dismissOverlays(page); return response; }));
     await page.waitForTimeout(1000);
-    const productUrl = await findSellableProduct(page, /.+/);
+    const productUrl = isRemarkable ? new URL("/products/remarkable-paper/pure?d2cSellable=true", startUrl.origin).toString() : await findSellableProduct(page, /.+/);
     if (!productUrl) {
       const anchorCount = await page.locator("a[href]").count();
       throw new Error(`No sellable product was found on ${page.url()} (${anchorCount} links inspected). The category may require a region, consent, or client-side product selection before product URLs are exposed.`);
@@ -322,7 +333,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ startUrl: startUrl.toString(), stoppedAtPayment, steps });
   } catch (error) {
-    if (!browser) return NextResponse.json({ error: "The hosted browser could not start. Cloudflare may be at its run limit; completed runs remain available. Try again shortly." }, { status: 503 });
+    if (!browser) return NextResponse.json({ error: process.env.NODE_ENV === "development" ? "Local Chromium could not start. Install it with `npx playwright install chromium` and try again." : "The hosted browser could not start. Cloudflare may be at its run limit; completed runs remain available. Try again shortly." }, { status: 503 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Journey analysis failed." }, { status: 422 });
   } finally { await browser?.close(); }
 }
